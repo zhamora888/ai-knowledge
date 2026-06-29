@@ -8,12 +8,24 @@ OLLAMA_URL = "http://localhost:11434/api/chat"
 MODEL = "llama3.2:1b"
 MEMORY_FILE = Path("memory/conversation.json")
 
-SYSTEM_PROMPT = "You are a helpful assistant. Answer clearly and concisely."
+SYSTEM_PROMPT = """You are a Software Architecture Assistant. Your role is to help with \
+software design decisions, architecture reviews, and engineering best practices.
+
+When knowledge base notes are provided in the prompt, use them as your primary reference. \
+Be specific — cite the relevant principles or patterns from those notes. If the notes do not \
+cover the topic, draw on general software engineering knowledge and say so.
+
+Structure your answers clearly. When reviewing designs, identify tradeoffs. \
+When proposing solutions, explain the reasoning behind them. Be concise."""
 
 
 def load_messages() -> list:
     if MEMORY_FILE.exists():
-        return json.loads(MEMORY_FILE.read_text(encoding="utf-8"))
+        messages = json.loads(MEMORY_FILE.read_text(encoding="utf-8"))
+        # Always apply the current system prompt so role changes take effect immediately.
+        if messages and messages[0]["role"] == "system":
+            messages[0]["content"] = SYSTEM_PROMPT
+        return messages
     return [{"role": "system", "content": SYSTEM_PROMPT}]
 
 
@@ -54,7 +66,7 @@ def main():
     messages = load_messages()
     is_new = len(messages) == 1
 
-    print(f"=== Local AI Chat ({MODEL}) ===")
+    print(f"=== Software Architecture Assistant ({MODEL}) ===")
     if is_new:
         print("New conversation started.")
     else:
