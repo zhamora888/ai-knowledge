@@ -39,8 +39,8 @@ def build_prompt(user_input: str) -> str:
     if not matches:
         return user_input
 
-    filenames = ", ".join(m["filename"] for m in matches)
-    print(f"  [retrieved: {filenames}]")
+    labels = ", ".join(f"{m['filename']} > {m['heading']}" for m in matches)
+    print(f"  [retrieved: {labels}]")
 
     context = build_context(matches)
     return (
