@@ -2,7 +2,8 @@ import json
 import requests
 from pathlib import Path
 
-from search import search_notes, build_context
+import tools
+from tools import TOOL_DEFINITIONS
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
 MODEL = "llama3.2:1b"
@@ -11,9 +12,8 @@ MEMORY_FILE = Path("memory/conversation.json")
 SYSTEM_PROMPT = """You are a Software Architecture Assistant. Your role is to help with \
 software design decisions, architecture reviews, and engineering best practices.
 
-When knowledge base notes are provided in the prompt, use them as your primary reference. \
-Be specific — cite the relevant principles or patterns from those notes. If the notes do not \
-cover the topic, draw on general software engineering knowledge and say so.
+You have access to a knowledge base via tools. Use search_notes or read_file to look up \
+relevant information before answering. Use list_documents to discover what is available.
 
 Structure your answers clearly. When reviewing designs, identify tradeoffs. \
 When proposing solutions, explain the reasoning behind them. Be concise."""
@@ -34,7 +34,6 @@ Do not repeat the proposal back — just critique it."""
 def load_messages() -> list:
     if MEMORY_FILE.exists():
         messages = json.loads(MEMORY_FILE.read_text(encoding="utf-8"))
-        # Always apply the current system prompt so role changes take effect immediately.
         if messages and messages[0]["role"] == "system":
             messages[0]["content"] = SYSTEM_PROMPT
         return messages
@@ -49,6 +48,7 @@ def save_messages(messages: list) -> None:
 
 
 def call_ollama(messages: list) -> str:
+    """Simple one-shot call — used for the reviewer (no tools)."""
     response = requests.post(OLLAMA_URL, json={
         "model": MODEL,
         "messages": messages,
@@ -58,9 +58,41 @@ def call_ollama(messages: list) -> str:
     return response.json()["message"]["content"]
 
 
+def run_agent(messages: list) -> str:
+    """Agentic loop: call Ollama, execute any tool calls, repeat until a text reply arrives."""
+    while True:
+        response = requests.post(OLLAMA_URL, json={
+            "model": MODEL,
+            "messages": messages,
+            "tools": TOOL_DEFINITIONS,
+            "stream": False,
+        })
+        response.raise_for_status()
+        message = response.json()["message"]
+
+        tool_calls = message.get("tool_calls") or []
+        if not tool_calls:
+            # No tool calls — the model produced its final answer.
+            return message["content"]
+
+        # Append the assistant's tool-call turn to the messages list.
+        messages.append(message)
+
+        # Execute each requested tool and feed results back.
+        for tc in tool_calls:
+            fn = tc["function"]
+            name = fn["name"]
+            args = fn.get("arguments") or {}
+            if isinstance(args, str):
+                args = json.loads(args)
+
+            print(f"  [tool: {name}({args})]")
+            result = tools.execute(name, args)
+
+            messages.append({"role": "tool", "content": result})
+
+
 def run_reviewer(user_input: str, architect_reply: str) -> str:
-    # Independent call — fresh messages list with the reviewer role.
-    # The reviewer sees only the question and the proposal, not the full conversation.
     messages = [
         {"role": "system", "content": REVIEWER_PROMPT},
         {"role": "user", "content": (
@@ -69,22 +101,6 @@ def run_reviewer(user_input: str, architect_reply: str) -> str:
         )},
     ]
     return call_ollama(messages)
-
-
-def build_prompt(user_input: str) -> str:
-    matches = search_notes(user_input)
-    if not matches:
-        return user_input
-
-    labels = ", ".join(f"{m['filename']} > {m['heading']}" for m in matches)
-    print(f"  [retrieved: {labels}]")
-
-    context = build_context(matches)
-    return (
-        f"[Relevant notes from knowledge base]\n\n"
-        f"{context}\n\n"
-        f"[Question]\n{user_input}"
-    )
 
 
 def main():
@@ -107,16 +123,14 @@ def main():
             print("Goodbye!")
             break
 
-        prompt = build_prompt(user_input)
-        messages.append({"role": "user", "content": prompt})
+        messages.append({"role": "user", "content": user_input})
 
-        architect_reply = call_ollama(messages)
+        architect_reply = run_agent(messages)
         print(f"\n[Architect]\n{architect_reply}\n")
 
         critique = run_reviewer(user_input, architect_reply)
         print(f"[Reviewer]\n{critique}\n")
 
-        # Save both passes as a single assistant turn so future context includes both.
         combined = f"**Architect:**\n{architect_reply}\n\n**Reviewer:**\n{critique}"
         messages.append({"role": "assistant", "content": combined})
         save_messages(messages)
