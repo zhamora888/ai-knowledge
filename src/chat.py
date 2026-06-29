@@ -18,6 +18,18 @@ cover the topic, draw on general software engineering knowledge and say so.
 Structure your answers clearly. When reviewing designs, identify tradeoffs. \
 When proposing solutions, explain the reasoning behind them. Be concise."""
 
+REVIEWER_PROMPT = """You are a Senior Software Engineer conducting a design review. \
+You will be given a design question and an architecture proposal.
+
+Your job is to critically evaluate the proposal. Look for:
+- Violations of SOLID principles or established patterns
+- Missing edge cases or failure modes
+- Scalability or maintainability concerns
+- Simpler alternatives that achieve the same goal
+
+Be direct and specific. If the proposal is sound, say so briefly and note only genuine concerns. \
+Do not repeat the proposal back — just critique it."""
+
 
 def load_messages() -> list:
     if MEMORY_FILE.exists():
@@ -44,6 +56,19 @@ def call_ollama(messages: list) -> str:
     })
     response.raise_for_status()
     return response.json()["message"]["content"]
+
+
+def run_reviewer(user_input: str, architect_reply: str) -> str:
+    # Independent call — fresh messages list with the reviewer role.
+    # The reviewer sees only the question and the proposal, not the full conversation.
+    messages = [
+        {"role": "system", "content": REVIEWER_PROMPT},
+        {"role": "user", "content": (
+            f"Design question: {user_input}\n\n"
+            f"Proposed solution:\n{architect_reply}"
+        )},
+    ]
+    return call_ollama(messages)
 
 
 def build_prompt(user_input: str) -> str:
@@ -85,10 +110,15 @@ def main():
         prompt = build_prompt(user_input)
         messages.append({"role": "user", "content": prompt})
 
-        reply = call_ollama(messages)
-        print(f"\nAssistant: {reply}\n")
+        architect_reply = call_ollama(messages)
+        print(f"\n[Architect]\n{architect_reply}\n")
 
-        messages.append({"role": "assistant", "content": reply})
+        critique = run_reviewer(user_input, architect_reply)
+        print(f"[Reviewer]\n{critique}\n")
+
+        # Save both passes as a single assistant turn so future context includes both.
+        combined = f"**Architect:**\n{architect_reply}\n\n**Reviewer:**\n{critique}"
+        messages.append({"role": "assistant", "content": combined})
         save_messages(messages)
 
 
