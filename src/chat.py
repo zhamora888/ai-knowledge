@@ -2,6 +2,8 @@ import json
 import requests
 from pathlib import Path
 
+from search import search_notes, build_context
+
 OLLAMA_URL = "http://localhost:11434/api/chat"
 MODEL = "llama3.2:1b"
 MEMORY_FILE = Path("memory/conversation.json")
@@ -32,9 +34,25 @@ def call_ollama(messages: list) -> str:
     return response.json()["message"]["content"]
 
 
+def build_prompt(user_input: str) -> str:
+    matches = search_notes(user_input)
+    if not matches:
+        return user_input
+
+    filenames = ", ".join(m["filename"] for m in matches)
+    print(f"  [retrieved: {filenames}]")
+
+    context = build_context(matches)
+    return (
+        f"[Relevant notes from knowledge base]\n\n"
+        f"{context}\n\n"
+        f"[Question]\n{user_input}"
+    )
+
+
 def main():
     messages = load_messages()
-    is_new = len(messages) == 1  # only the system prompt → fresh conversation
+    is_new = len(messages) == 1
 
     print(f"=== Local AI Chat ({MODEL}) ===")
     if is_new:
@@ -52,7 +70,8 @@ def main():
             print("Goodbye!")
             break
 
-        messages.append({"role": "user", "content": user_input})
+        prompt = build_prompt(user_input)
+        messages.append({"role": "user", "content": prompt})
 
         reply = call_ollama(messages)
         print(f"\nAssistant: {reply}\n")
