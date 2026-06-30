@@ -1,4 +1,5 @@
 import json
+import sys
 import requests
 from pathlib import Path
 
@@ -108,6 +109,10 @@ def run_reviewer(user_input: str, architect_reply: str) -> str:
 
 
 def main():
+    if "--reset" in sys.argv and MEMORY_FILE.exists():
+        MEMORY_FILE.unlink()
+        print("Memory cleared.\n")
+
     messages = load_messages()
     is_new = len(messages) == 1
 
