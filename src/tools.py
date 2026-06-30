@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from search import search_notes, build_context
+import vector_index
 
 KNOWLEDGE_DIR = Path("knowledge")
 
@@ -35,13 +35,13 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "search_notes",
-            "description": "Search the knowledge base for sections relevant to a query.",
+            "description": "Semantically search the knowledge base for sections relevant to a query.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "query": {
                         "type": "string",
-                        "description": "Keywords to search for",
+                        "description": "Natural language question or topic to search for",
                     }
                 },
                 "required": ["query"],
@@ -90,16 +90,18 @@ def read_file(filename: str) -> str:
 
 
 def search_notes_tool(query: str) -> str:
-    matches = search_notes(query)
+    matches = vector_index.semantic_search(query)
     if not matches:
         return "No relevant sections found for that query."
-    return build_context(matches)
+    return vector_index.build_context(matches)
 
 
 def write_file(filename: str, content: str) -> str:
     path = KNOWLEDGE_DIR / filename
     path.write_text(content, encoding="utf-8")
-    return f"'{filename}' saved to the knowledge base."
+    # Keep the vector index in sync so new notes are immediately searchable.
+    vector_index.build_index()
+    return f"'{filename}' saved to the knowledge base and indexed."
 
 
 def execute(name: str, args: dict) -> str:

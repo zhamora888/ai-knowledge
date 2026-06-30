@@ -4,6 +4,7 @@ import requests
 from pathlib import Path
 
 import tools
+import vector_index
 from tools import TOOL_DEFINITIONS
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
@@ -112,6 +113,11 @@ def main():
     if "--reset" in sys.argv and MEMORY_FILE.exists():
         MEMORY_FILE.unlink()
         print("Memory cleared.\n")
+
+    if "--reindex" in sys.argv:
+        print("Rebuilding vector index...")
+        vector_index.build_index()
+        print("Vector index rebuilt.\n")
 
     messages = load_messages()
     is_new = len(messages) == 1
